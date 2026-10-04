@@ -3,24 +3,7 @@
 -- quarry3.lua
 -- ============================================================
 --
--- IMPORTANT HOME ORIENTATION
---
--- The turtle starts like this:
---
---                  MINING AREA
---                       ^
---                       |
---                    TURTLE
---                       |
---                     CHEST
---
--- At HOME:
---
---     direction 0 = toward mining area
---     chest      = directly behind turtle
---
---
--- GRID:
+-- GRID PATTERN:
 --
 -- H . H . H . H
 -- . H . H . H .
@@ -29,34 +12,40 @@
 --
 -- Each H is a vertical shaft to bedrock.
 --
+-- The turtle checks the four sides of every shaft.
 --
--- INVENTORY:
+-- BAD BLOCKS are left in the walls.
+--
+-- ALLTHEMODIUM is also treated as a bad block.
+-- When detected, the hole number is recorded and displayed.
+--
+-- Example:
+--
+-- Allthemodium: 1, 5, 13, 25
+--
+-- means Allthemodium was found while checking holes
+-- 1, 5, 13 and 25.
 --
 -- SLOT 1:
---     charcoal only
+--     CHARCOAL ONLY
 --
 -- SLOTS 2-16:
---     mined materials
+--     MINED MATERIALS
 --
+-- HOME:
 --
--- BAD BLOCKS:
+--     Turtle faces mining area.
+--     Chest is directly behind turtle.
 --
--- These are left in place when checking the four walls.
+-- When servicing:
 --
--- The vertical shaft itself is always cleared downward,
--- because the purpose of each hole is to reach bedrock.
---
---
--- IMPORTANT:
---
--- HOME SERVICE ORIENTATION IS NOW CONSISTENT.
---
--- serviceHome() MUST be called while facing the chest.
---
--- unloadMiningInventory() DOES NOT TURN.
---
--- This prevents the old double-turn bug which caused the
--- turtle to unload everything onto the ground.
+--     return home
+--     turn once toward chest
+--     unload
+--     refill charcoal
+--     refuel
+--     turn once toward mining area
+--     return to exact position
 --
 -- ============================================================
 
@@ -103,7 +92,16 @@ local badBlocks = {
 
     ["chisel:limestone"] = true,
     ["chisel:diorite"] = true,
-    ["chisel:marble"] = true
+    ["chisel:marble"] = true,
+
+    -- ========================================================
+    -- ALLTHEMODIUM
+    --
+    -- These must NEVER be mined by the turtle.
+    -- ========================================================
+
+    ["allthemodium:allthemodium_ore"] = true,
+    ["allthemodium:allthemodium_slate_ore"] = true
 }
 
 
@@ -170,7 +168,7 @@ sleep(3)
 --
 -- 0 = original / mining direction
 -- 1 = right
--- 2 = backwards / chest direction at home
+-- 2 = backwards / chest direction
 -- 3 = left
 
 local x = 0
@@ -182,6 +180,65 @@ local direction = 0
 local currentRow = 1
 local currentHole = 1
 local currentDepth = 0
+
+
+-- ============================================================
+-- ALLTHEMODIUM TRACKING
+-- ============================================================
+
+-- We store hole numbers here.
+--
+-- Example:
+--
+-- allthemodiumFound[1] = true
+-- allthemodiumFound[5] = true
+--
+-- This prevents the same hole from appearing multiple times.
+
+local allthemodiumFound = {}
+
+
+local function getCurrentHoleNumber()
+
+    return
+        ((currentRow - 1) * HOLES_PER_ROW)
+        + currentHole
+end
+
+
+local function recordAllthemodium()
+
+    local holeNumber =
+        getCurrentHoleNumber()
+
+    if not allthemodiumFound[holeNumber] then
+
+        allthemodiumFound[holeNumber] = true
+    end
+end
+
+
+local function getAllthemodiumList()
+
+    local result = {}
+
+    for hole = 1, TOTAL_HOLES do
+
+        if allthemodiumFound[hole] then
+
+            table.insert(
+                result,
+                tostring(hole)
+            )
+        end
+    end
+
+    if #result == 0 then
+        return "NONE"
+    end
+
+    return table.concat(result, ", ")
+end
 
 
 -- ============================================================
@@ -219,6 +276,16 @@ local function status(message)
 
     print("")
     print("Charcoal:   " .. turtle.getItemCount(FUEL_SLOT))
+    print("")
+
+    -- ========================================================
+    -- ALLTHEMODIUM RESULT
+    -- ========================================================
+
+    print("Allthemodium:")
+    print(getAllthemodiumList())
+
+    print("")
     print("================================")
 end
 
@@ -238,24 +305,30 @@ end
 
 
 -- ============================================================
--- FUEL SLOT
+-- ALLTHEMODIUM BLOCK
 -- ============================================================
 
-local function slot1IsCharcoal()
+local function isAllthemodium(name)
 
-    local item = turtle.getItemDetail(FUEL_SLOT)
-
-    if not item then
+    if not name then
         return false
     end
 
-    return item.name == CHARCOAL_NAME
+    return
+        name == "allthemodium:allthemodium_ore"
+        or
+        name == "allthemodium:allthemodium_slate_ore"
 end
 
 
+-- ============================================================
+-- FUEL SLOT
+-- ============================================================
+
 local function verifyFuelSlot()
 
-    local item = turtle.getItemDetail(FUEL_SLOT)
+    local item =
+        turtle.getItemDetail(FUEL_SLOT)
 
     if not item then
         return true
@@ -296,7 +369,8 @@ local function turnRight()
 
     turtle.turnRight()
 
-    direction = (direction + 1) % 4
+    direction =
+        (direction + 1) % 4
 end
 
 
@@ -304,7 +378,8 @@ local function turnLeft()
 
     turtle.turnLeft()
 
-    direction = (direction + 3) % 4
+    direction =
+        (direction + 3) % 4
 end
 
 
@@ -313,7 +388,8 @@ local function turnAround()
     turtle.turnRight()
     turtle.turnRight()
 
-    direction = (direction + 2) % 4
+    direction =
+        (direction + 2) % 4
 end
 
 
@@ -351,15 +427,19 @@ local function forwardNoDig()
         if success then
 
             if direction == 0 then
+
                 y = y + 1
 
             elseif direction == 1 then
+
                 x = x + 1
 
             elseif direction == 2 then
+
                 y = y - 1
 
             elseif direction == 3 then
+
                 x = x - 1
             end
 
@@ -377,6 +457,7 @@ local function forwardNoDig()
         print("Reason: " .. tostring(reason))
         print("")
         print("Clear the path.")
+        print("")
         print("Continuing automatically...")
         print("")
 
@@ -443,7 +524,8 @@ end
 
 local function distanceHome()
 
-    return math.abs(x)
+    return
+        math.abs(x)
         + math.abs(y)
         + math.abs(z)
         + FUEL_RESERVE
@@ -465,9 +547,6 @@ end
 
 -- ============================================================
 -- REFUEL
---
--- Uses only one charcoal at a time.
--- Never empties the entire stack.
 -- ============================================================
 
 local function refuelToTarget(targetFuel)
@@ -535,12 +614,12 @@ end
 -- TOP UP CHARCOAL
 --
 -- PRECONDITION:
+-- Turtle is facing chest.
 --
--- Turtle MUST be facing the chest.
+-- DOES NOT TURN.
 --
--- This function does NOT turn the turtle.
---
--- This is important for the home-service orientation.
+-- The current repository version expects charcoal to be
+-- accessible from the front chest.
 -- ============================================================
 
 local function topUpCharcoalFromChest()
@@ -565,9 +644,9 @@ local function topUpCharcoalFromChest()
     )
 
 
-    -- The chest must be directly in front.
     local chest =
         peripheral.wrap("front")
+
 
     if not chest then
 
@@ -579,8 +658,6 @@ local function topUpCharcoalFromChest()
         print("The turtle should be facing")
         print("the home chest.")
         print("")
-        print("Current direction: " .. direction)
-        print("")
         print("Press ENTER to retry.")
         print("")
 
@@ -591,7 +668,7 @@ local function topUpCharcoalFromChest()
 
 
     -- --------------------------------------------------------
-    -- Find charcoal in the chest.
+    -- Find charcoal.
     -- --------------------------------------------------------
 
     local charcoalSlot = nil
@@ -614,15 +691,15 @@ local function topUpCharcoalFromChest()
         print("      NO CHARCOAL IN CHEST")
         print("================================")
         print("")
-        print("Slot 1:")
-        print(current .. " charcoal")
+        print("Current charcoal:")
+        print(current)
         print("")
         print("Needed:")
         print(needed)
         print("")
         print("Put charcoal into the chest.")
         print("")
-        print("Checking again automatically...")
+        print("Checking again...")
         print("")
 
         sleep(2)
@@ -632,139 +709,97 @@ local function topUpCharcoalFromChest()
 
 
     -- --------------------------------------------------------
-    -- We need charcoal to be accessible through turtle.suck.
+    -- IMPORTANT:
     --
-    -- If it isn't chest slot 1, move it there.
+    -- turtle.suck() pulls from the front chest.
+    --
+    -- To make the transfer deterministic, the charcoal stack
+    -- must be in the front chest's first available position
+    -- used by the turtle.
+    --
+    -- If charcoal is already in slot 1, take only what is
+    -- required.
     -- --------------------------------------------------------
 
     if charcoalSlot ~= 1 then
 
-        local slot1Item =
-            chest.getItemDetail(1)
+        print("")
+        print("================================")
+        print("       CHARCOAL LOCATION")
+        print("================================")
+        print("")
+        print("Charcoal was found in chest slot:")
+        print(charcoalSlot)
+        print("")
+        print("Move the charcoal stack to")
+        print("chest slot 1.")
+        print("")
+        print("This prevents the turtle from")
+        print("accidentally taking another item.")
+        print("")
+        print("Press ENTER when done.")
+        print("")
 
-        if slot1Item then
-
-            local emptySlot = nil
-            local size = chest.size()
-
-            for slot = 1, size do
-
-                if not chest.getItemDetail(slot) then
-
-                    emptySlot = slot
-                    break
-                end
-            end
-
-
-            if not emptySlot then
-
-                print("")
-                print("================================")
-                print("        CHEST HAS NO SPACE")
-                print("================================")
-                print("")
-                print("The chest has no empty slot")
-                print("for rearranging charcoal.")
-                print("")
-                print("Remove something from the chest.")
-                print("")
-                print("Press ENTER to retry.")
-                print("")
-
-                read()
-
-                return topUpCharcoalFromChest()
-            end
-
-
-            chest.pushItems(
-                peripheral.getName(chest),
-                1,
-                nil,
-                emptySlot
-            )
-        end
-
-
-        -- Re-read chest.
-        chestItems = chest.list()
-        charcoalSlot = nil
-
-        for slot, item in pairs(chestItems) do
-
-            if item.name == CHARCOAL_NAME then
-
-                charcoalSlot = slot
-                break
-            end
-        end
-
-
-        if not charcoalSlot then
-            return topUpCharcoalFromChest()
-        end
-
-
-        chest.pushItems(
-            peripheral.getName(chest),
-            charcoalSlot,
-            nil,
-            1
-        )
-    end
-
-
-    -- --------------------------------------------------------
-    -- Determine how much charcoal is actually available.
-    -- --------------------------------------------------------
-
-    chestItems = chest.list()
-
-    local charcoalAvailable = 0
-
-    if chestItems[1]
-       and chestItems[1].name == CHARCOAL_NAME then
-
-        charcoalAvailable =
-            chestItems[1].count
-    end
-
-
-    if charcoalAvailable <= 0 then
-
-        sleep(1)
+        read()
 
         return topUpCharcoalFromChest()
     end
 
 
-    -- --------------------------------------------------------
-    -- TAKE ONLY WHAT IS NEEDED.
-    -- --------------------------------------------------------
+    local available =
+        chestItems[1].count
 
     local takeAmount =
         math.min(
             needed,
-            charcoalAvailable
+            available
         )
+
+
+    if takeAmount <= 0 then
+        return false
+    end
 
 
     turtle.select(FUEL_SLOT)
 
-    local sucked =
+    local before =
+        turtle.getItemCount(FUEL_SLOT)
+
+
+    local success =
         turtle.suck(takeAmount)
 
 
-    if not sucked then
+    if not success then
 
         print("")
         print("================================")
         print("      CHARCOAL TAKE FAILED")
         print("================================")
         print("")
-        print("The turtle could not take")
-        print("charcoal from the chest.")
+        print("Check that charcoal is in")
+        print("chest slot 1.")
+        print("")
+        print("Press ENTER to retry.")
+        print("")
+
+        read()
+
+        return topUpCharcoalFromChest()
+    end
+
+
+    local after =
+        turtle.getItemCount(FUEL_SLOT)
+
+
+    if after <= before then
+
+        print("")
+        print("================================")
+        print("     CHARCOAL NOT TRANSFERRED")
+        print("================================")
         print("")
         print("Check the chest.")
         print("")
@@ -777,51 +812,24 @@ local function topUpCharcoalFromChest()
     end
 
 
-    local finalCount =
-        turtle.getItemCount(FUEL_SLOT)
-
-
-    if finalCount < current then
-
-        print("")
-        print("Unexpected charcoal transfer.")
-        print("")
-        print("Press ENTER to retry.")
-        print("")
-
-        read()
-
-        return topUpCharcoalFromChest()
-    end
-
-
     turtle.select(FUEL_SLOT)
 
-    return finalCount >= FUEL_STACK_SIZE
+    return after >= FUEL_STACK_SIZE
 end
 
 
 -- ============================================================
 -- UNLOAD MINING INVENTORY
 --
--- VERY IMPORTANT:
+-- PRECONDITION:
+-- Turtle is facing chest.
 --
--- THIS FUNCTION ASSUMES THE TURTLE IS ALREADY FACING
--- THE CHEST.
---
--- IT DOES NOT TURN.
---
--- This is the fix for the original bug.
+-- DOES NOT TURN.
 -- ============================================================
 
 local function unloadMiningInventory()
 
     status("UNLOADING")
-
-    -- DO NOT TURN HERE.
-    --
-    -- The caller is responsible for making sure the turtle
-    -- faces the chest before calling this function.
 
 
     for slot = 2, 16 do
@@ -866,38 +874,32 @@ end
 -- HOME SERVICE
 --
 -- PRECONDITION:
---
--- Turtle is HOME.
--- Turtle is FACING THE CHEST.
+-- Home and facing chest.
 --
 -- POSTCONDITION:
+-- Home and still facing chest.
 --
--- Turtle is HOME.
--- Turtle is STILL FACING THE CHEST.
---
--- The caller then turns around exactly once.
+-- DOES NOT TURN.
 -- ============================================================
 
 local function serviceHome()
 
     -- --------------------------------------------------------
-    -- 1. Unload mined items.
-    --
-    -- We are already facing the chest.
+    -- UNLOAD
     -- --------------------------------------------------------
 
     unloadMiningInventory()
 
 
     -- --------------------------------------------------------
-    -- 2. Refill charcoal to 64.
+    -- REFILL CHARCOAL
     -- --------------------------------------------------------
 
     topUpCharcoalFromChest()
 
 
     -- --------------------------------------------------------
-    -- 3. Add fuel if necessary.
+    -- REFUEL
     -- --------------------------------------------------------
 
     if turtle.getFuelLevel() ~= "unlimited" then
@@ -925,39 +927,18 @@ local function serviceHome()
     end
 
 
-    -- --------------------------------------------------------
-    -- 4. Refuelling consumed charcoal.
-    --
-    -- Restore slot 1 to 64.
-    -- --------------------------------------------------------
-
+    -- Refueling consumed charcoal.
     topUpCharcoalFromChest()
 
 
     turtle.select(FUEL_SLOT)
 
-    -- IMPORTANT:
-    --
-    -- Still facing chest here.
+    -- Still facing chest.
 end
 
 
 -- ============================================================
 -- RETURN HOME
---
--- PRECONDITION:
---
--- Position tracking is correct.
---
--- POSTCONDITION:
---
--- x = 0
--- y = 0
--- z = 0
--- direction = 0
---
--- So after this function the turtle faces the mining area,
--- and the chest is behind it.
 -- ============================================================
 
 local function goHome()
@@ -1023,7 +1004,7 @@ local function goHome()
 
 
     -- --------------------------------------------------------
-    -- ALWAYS RESTORE HOME DIRECTION.
+    -- HOME DIRECTION
     -- --------------------------------------------------------
 
     face(0)
@@ -1032,75 +1013,58 @@ end
 
 -- ============================================================
 -- SERVICE TRIP
---
--- Saves exact position.
---
--- Goes HOME.
---
--- Turns ONCE to face chest.
---
--- Services inventory/fuel.
---
--- Turns ONCE back toward mining area.
---
--- Restores exact position.
 -- ============================================================
 
 local function service()
 
-    -- --------------------------------------------------------
-    -- SAVE EXACT STATE
-    -- --------------------------------------------------------
+    -- Save exact position/state.
 
     local savedX = x
     local savedY = y
     local savedZ = z
 
-    local savedDirection = direction
+    local savedDirection =
+        direction
 
-    local savedRow = currentRow
-    local savedHole = currentHole
-    local savedDepth = currentDepth
+    local savedRow =
+        currentRow
+
+    local savedHole =
+        currentHole
+
+    local savedDepth =
+        currentDepth
 
 
     -- --------------------------------------------------------
-    -- RETURN HOME
+    -- GO HOME
     -- --------------------------------------------------------
 
     goHome()
 
 
     -- --------------------------------------------------------
-    -- HOME IS NOW:
+    -- FACE CHEST
     --
-    -- direction = 0
-    -- chest is behind us
-    --
-    -- Turn exactly once.
-    -- Now:
-    --
-    -- direction = 2
-    -- chest is in front.
+    -- Exactly one turn.
     -- --------------------------------------------------------
 
     turnAround()
 
 
     -- --------------------------------------------------------
-    -- SERVICE HOME
+    -- SERVICE
     --
-    -- serviceHome() DOES NOT TURN.
+    -- No turning occurs here.
     -- --------------------------------------------------------
 
     serviceHome()
 
 
     -- --------------------------------------------------------
-    -- SERVICE COMPLETE.
+    -- FACE MINING AREA
     --
-    -- Still facing chest.
-    --
-    -- Turn exactly once to face mining direction.
+    -- Exactly one turn.
     -- --------------------------------------------------------
 
     turnAround()
@@ -1169,15 +1133,20 @@ local function service()
 
 
     -- --------------------------------------------------------
-    -- RESTORE ORIGINAL DIRECTION
+    -- RESTORE DIRECTION
     -- --------------------------------------------------------
 
     face(savedDirection)
 
 
-    currentRow = savedRow
-    currentHole = savedHole
-    currentDepth = savedDepth
+    currentRow =
+        savedRow
+
+    currentHole =
+        savedHole
+
+    currentDepth =
+        savedDepth
 
 
     status("RESUMING")
@@ -1186,9 +1155,6 @@ end
 
 -- ============================================================
 -- INVENTORY FULL
---
--- Slot 1 is fuel.
--- Slots 2-16 are mining inventory.
 -- ============================================================
 
 local function miningInventoryFull()
@@ -1243,6 +1209,18 @@ end
 
 -- ============================================================
 -- MINE ONE WALL
+--
+-- This is where Allthemodium is detected.
+--
+-- If Allthemodium is found:
+--
+--     record hole number
+--     DO NOT MINE
+--
+-- Otherwise:
+--
+--     bad block -> leave it
+--     normal block -> mine it
 -- ============================================================
 
 local function mineWall()
@@ -1259,10 +1237,30 @@ local function mineWall()
         data.name
 
 
+    -- ========================================================
+    -- ALLTHEMODIUM
+    -- ========================================================
+
+    if isAllthemodium(blockName) then
+
+        recordAllthemodium()
+
+        return
+    end
+
+
+    -- ========================================================
+    -- OTHER BAD BLOCK
+    -- ========================================================
+
     if isBadBlock(blockName) then
         return
     end
 
+
+    -- ========================================================
+    -- NORMAL BLOCK
+    -- ========================================================
 
     turtle.dig()
 end
@@ -1298,6 +1296,7 @@ local function checkFourWalls()
 
 
     -- Restore original direction.
+
     face(originalDirection)
 end
 
@@ -1313,9 +1312,9 @@ local function mineHole()
 
     status(
         "MINING HOLE " ..
-        currentHole ..
+        getCurrentHoleNumber() ..
         "/" ..
-        HOLES_PER_ROW
+        TOTAL_HOLES
     )
 
 
@@ -1325,7 +1324,7 @@ local function mineHole()
 
 
         -- ----------------------------------------------------
-        -- Check block below.
+        -- Inspect below.
         -- ----------------------------------------------------
 
         local found, data =
@@ -1344,14 +1343,12 @@ local function mineHole()
 
 
         -- ----------------------------------------------------
-        -- Clear block below.
+        -- Dig down.
         --
-        -- Bad blocks are deliberately ignored for the four
-        -- walls, but the shaft itself must reach bedrock.
+        -- The shaft itself is always cleared.
         -- ----------------------------------------------------
 
         if turtle.detectDown() then
-
             turtle.digDown()
         end
 
@@ -1367,21 +1364,22 @@ local function mineHole()
 
 
         -- ----------------------------------------------------
-        -- Check all four sides.
+        -- Check four sides.
         -- ----------------------------------------------------
 
         checkFourWalls()
 
 
         -- ----------------------------------------------------
-        -- Status.
+        -- Periodic status.
         -- ----------------------------------------------------
 
-        if currentDepth % STATUS_DEPTH_INTERVAL == 0 then
+        if currentDepth %
+           STATUS_DEPTH_INTERVAL == 0 then
 
             status(
                 "MINING HOLE " ..
-                currentHole ..
+                getCurrentHoleNumber() ..
                 " - DEPTH " ..
                 currentDepth
             )
@@ -1390,13 +1388,19 @@ local function mineHole()
 
 
     -- ========================================================
-    -- BEDROCK
+    -- BEDROCK REACHED
     -- ========================================================
 
-    status("BEDROCK REACHED")
+    status(
+        "BEDROCK - HOLE " ..
+        getCurrentHoleNumber()
+    )
 
 
+    -- --------------------------------------------------------
     -- Return to surface.
+    -- --------------------------------------------------------
+
     while z < 0 do
         moveUp()
     end
@@ -1434,12 +1438,14 @@ end
 local function moveToNextRow(row)
 
     -- Move beyond the last hole.
+
     forwardNoDig()
 
 
     if row % 2 == 1 then
 
         -- Odd -> Even
+
         turnRight()
         forwardNoDig()
         turnRight()
@@ -1447,6 +1453,7 @@ local function moveToNextRow(row)
     else
 
         -- Even -> Odd
+
         turnLeft()
         forwardNoDig()
         turnLeft()
@@ -1456,16 +1463,6 @@ end
 
 -- ============================================================
 -- STARTUP FUEL
---
--- START CONDITION:
---
--- Turtle faces mining direction.
--- Chest is behind.
---
--- END CONDITION:
---
--- Turtle faces mining direction.
--- Slot 1 is topped up.
 -- ============================================================
 
 local function startupFuel()
@@ -1473,16 +1470,22 @@ local function startupFuel()
     verifyFuelSlot()
 
 
+    -- --------------------------------------------------------
     -- Face chest.
+    -- --------------------------------------------------------
+
     turnAround()
 
 
-    -- Fill slot 1 to 64.
+    -- --------------------------------------------------------
+    -- Fill slot 1.
+    -- --------------------------------------------------------
+
     topUpCharcoalFromChest()
 
 
     -- --------------------------------------------------------
-    -- Make sure we have useful starting fuel.
+    -- Get starting fuel.
     -- --------------------------------------------------------
 
     if turtle.getFuelLevel() ~= "unlimited" then
@@ -1510,12 +1513,17 @@ local function startupFuel()
     end
 
 
-    -- Refuelling may have consumed charcoal.
+    -- Refueling consumed charcoal.
+
     topUpCharcoalFromChest()
 
 
-    -- Face mining direction.
+    -- --------------------------------------------------------
+    -- Face mining area.
+    -- --------------------------------------------------------
+
     turnAround()
+
 
     turtle.select(FUEL_SLOT)
 end
@@ -1611,12 +1619,6 @@ local function main()
 
     -- ========================================================
     -- FINAL SERVICE
-    --
-    -- goHome() leaves us facing mining direction.
-    --
-    -- Turn ONCE to chest.
-    -- serviceHome() does NOT turn.
-    -- Turn ONCE back.
     -- ========================================================
 
     turnAround()
@@ -1627,7 +1629,7 @@ local function main()
 
 
     -- ========================================================
-    -- FINISHED
+    -- FINAL SCREEN
     -- ========================================================
 
     term.clear()
@@ -1645,6 +1647,11 @@ local function main()
     print("")
     print("Charcoal in slot 1:")
     print(turtle.getItemCount(FUEL_SLOT))
+    print("")
+    print("--------------------------------")
+    print("Allthemodium:")
+    print(getAllthemodiumList())
+    print("--------------------------------")
     print("")
 end
 
@@ -1679,6 +1686,11 @@ local function emergencyStop()
     print("Charcoal slot 1:")
     print(turtle.getItemCount(FUEL_SLOT))
     print("")
+    print("--------------------------------")
+    print("Allthemodium:")
+    print(getAllthemodiumList())
+    print("--------------------------------")
+    print("")
 end
 
 
@@ -1687,7 +1699,10 @@ end
 -- ============================================================
 
 local success, errorMessage =
-    xpcall(main, debug.traceback)
+    xpcall(
+        main,
+        debug.traceback
+    )
 
 
 if not success then
